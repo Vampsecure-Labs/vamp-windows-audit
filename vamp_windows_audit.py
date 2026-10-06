@@ -620,7 +620,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         description="Windows Security Configuration Auditor — 15 CIS checks",
     )
     src = parser.add_mutually_exclusive_group()
-    src.add_argument("--from-json", metavar="FILE",
+    src.add_argument("--from-json", "-p", metavar="FILE",
                      help="Analyze pre-collected audit JSON (cross-platform)")
     src.add_argument("--collect", action="store_true",
                      help="Collect and analyze locally (requires Windows + PowerShell as Administrator)")
