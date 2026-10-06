@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vamp-windows-audit"
+version = "1.0.0"
+description = "Windows Security Configuration Auditor — 15 CIS-aligned checks"
+readme = "README.md"
+license = {text = "AGPL-3.0-only"}
+authors = [{name = "VampSecure Studios", email = "belky@protonmail.ch"}]
+keywords = ["security", "audit", "windows", "cis", "pentest"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Intended Audience :: Information Technology",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: GNU Affero General Public License v3",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
+    "Topic :: System :: Systems Administration",
+]
+requires-python = ">=3.9"
+
+[project.scripts]
+vamp-windows-audit = "vamp_windows_audit:main_entry"
+
+[project.urls]
+Homepage = "https://github.com/Vampsecure-Labs/vamp-windows-audit"
+Repository = "https://github.com/Vampsecure-Labs/vamp-windows-audit"
+
+[tool.setuptools]
+py-modules = ["vamp_windows_audit"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+extend-exclude = ["build", "dist"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]
