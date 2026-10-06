@@ -9,6 +9,7 @@ from vamp_windows_audit import (
     CHECKS,
     Finding,
     WinInfo,
+    apply_delta,
     build_report,
     check_account_lockout,
     check_admin_renamed,
@@ -491,3 +492,75 @@ def test_invalid_json_path():
 
 def test_no_args_returns_3():
     assert main([]) == 3
+
+
+# ─── v1.1.0 — apply_delta ────────────────────────────────────────────────────
+
+def test_apply_delta_new(tmp_path):
+    """Finding not in baseline → delta_state='new'."""
+    baseline = {"findings": []}
+    bf = tmp_path / "baseline.json"
+    bf.write_text(json.dumps(baseline))
+    findings = [Finding.from_check("WIN-001")]
+    out, resolved = apply_delta(findings, str(bf))
+    assert out[0].delta_state == "new"
+    assert resolved == []
+
+
+def test_apply_delta_recurring(tmp_path):
+    """Finding also in baseline → delta_state='recurring'."""
+    baseline = {"findings": [{"check_id": "WIN-001", "title": "t",
+                               "severity": "critical", "category": "c",
+                               "cis": "x", "description": "d", "evidence": []}]}
+    bf = tmp_path / "baseline.json"
+    bf.write_text(json.dumps(baseline))
+    findings = [Finding.from_check("WIN-001")]
+    out, resolved = apply_delta(findings, str(bf))
+    assert out[0].delta_state == "recurring"
+    assert resolved == []
+
+
+def test_apply_delta_resolved(tmp_path):
+    """Finding in baseline but not in current scan → appears in resolved."""
+    old_f = {"check_id": "WIN-006", "title": "UAC", "severity": "critical",
+              "category": "c", "cis": "x", "description": "d", "evidence": []}
+    baseline = {"findings": [old_f]}
+    bf = tmp_path / "baseline.json"
+    bf.write_text(json.dumps(baseline))
+    findings = []  # WIN-006 fixed
+    out, resolved = apply_delta(findings, str(bf))
+    assert out == []
+    assert len(resolved) == 1
+    assert resolved[0]["check_id"] == "WIN-006"
+
+
+def test_apply_delta_bad_file():
+    """Non-existent baseline raises ValueError."""
+    import pytest
+    with pytest.raises(ValueError, match="Cannot read baseline"):
+        apply_delta([], "/nonexistent/baseline.json")
+
+
+def test_build_report_with_resolved(tmp_path):
+    """build_report includes delta section when resolved is passed."""
+    info = WinInfo(hostname="T")
+    findings = [Finding.from_check("WIN-001")]
+    findings[0].delta_state = "new"
+    resolved = [{"check_id": "WIN-006", "severity": "critical"}]
+    r = build_report(info, findings, resolved=resolved)
+    assert "delta" in r
+    assert r["delta"]["new"] == 1
+    assert r["delta"]["recurring"] == 0
+    assert r["delta"]["resolved"][0]["check_id"] == "WIN-006"
+
+
+def test_main_with_baseline(tmp_path):
+    """main() with --baseline runs without error."""
+    data = {"hostname": "T", "smb_v1_enabled": True}
+    scan_file = tmp_path / "scan.json"
+    scan_file.write_text(json.dumps(data))
+    baseline = {"findings": []}
+    bl_file = tmp_path / "baseline.json"
+    bl_file.write_text(json.dumps(baseline))
+    code = main(["--from-json", str(scan_file), "--baseline", str(bl_file), "--quiet"])
+    assert code == 2  # WIN-001 is critical

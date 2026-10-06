@@ -14,9 +14,10 @@ import subprocess
 import sys
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Dict, List, Optional
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 TOOL = "vamp-windows-audit"
 
 # ─── PowerShell collection script ─────────────────────────────────────────────
@@ -245,9 +246,13 @@ class Finding:
     cis: str
     description: str
     evidence: List[str]
+    delta_state: Optional[str] = None  # "new" | "recurring" when --baseline used
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        d = asdict(self)
+        if d["delta_state"] is None:
+            del d["delta_state"]
+        return d
 
     @classmethod
     def from_check(cls, cid: str, description: str = "",
@@ -511,17 +516,48 @@ def scan(info: WinInfo) -> List[Finding]:
     return findings
 
 
+# ─── Delta ────────────────────────────────────────────────────────────────────
+
+def apply_delta(
+    findings: List[Finding], baseline_path: str
+) -> tuple:
+    """Annotate findings as 'new'/'recurring'; return (annotated, resolved_list).
+
+    resolved_list contains finding dicts from the baseline that are no longer
+    present in the current scan — issues that were fixed.
+    """
+    try:
+        baseline_data = json.loads(
+            Path(baseline_path).read_text(encoding="utf-8")
+        )
+    except Exception as exc:
+        raise ValueError(f"Cannot read baseline '{baseline_path}': {exc}") from exc
+
+    baseline_ids = {f["check_id"] for f in baseline_data.get("findings", [])}
+    current_ids = {f.check_id for f in findings}
+
+    for f in findings:
+        f.delta_state = "recurring" if f.check_id in baseline_ids else "new"
+
+    resolved = [
+        f for f in baseline_data.get("findings", [])
+        if f["check_id"] not in current_ids
+    ]
+    return findings, resolved
+
+
 # ─── Report ───────────────────────────────────────────────────────────────────
 
 _SEV_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
 
 
 def build_report(info: WinInfo, findings: List[Finding],
-                 case: str = "", analyst: str = "") -> dict:
+                 case: str = "", analyst: str = "",
+                 resolved: Optional[List[dict]] = None) -> dict:
     counts: Dict[str, int] = {"critical": 0, "high": 0, "medium": 0, "low": 0}
     for f in findings:
         counts[f.severity] = counts.get(f.severity, 0) + 1
-    return {
+    report = {
         "tool": TOOL,
         "version": VERSION,
         "generated": datetime.now(timezone.utc).isoformat(),
@@ -535,6 +571,13 @@ def build_report(info: WinInfo, findings: List[Finding],
             key=lambda x: _SEV_ORDER.get(x["severity"], 9),
         ),
     }
+    if resolved is not None:
+        report["delta"] = {
+            "new": sum(1 for f in findings if f.delta_state == "new"),
+            "recurring": sum(1 for f in findings if f.delta_state == "recurring"),
+            "resolved": resolved,
+        }
+    return report
 
 
 def render_html(report: dict) -> str:
@@ -548,21 +591,51 @@ def render_html(report: dict) -> str:
         return (f"<span class='badge' style='background:{_SEV_COLOR[sev]}'>"
                 f"{c} {sev.upper()}</span>")
 
+    _DELTA_STYLE = {
+        "new": ("🆕 NEW", "#1f6feb", "#388bfd"),
+        "recurring": ("🔁 RECURRING", "#6e3d1b", "#f0883e"),
+    }
+
     findings_html = ""
     for f in report["findings"]:
         color = _SEV_COLOR.get(f["severity"], "#555")
         ev_html = "".join(f"<li><code>{e}</code></li>" for e in f["evidence"])
+        ds = f.get("delta_state")
+        delta_html = ""
+        if ds and ds in _DELTA_STYLE:
+            label, bg, txt = _DELTA_STYLE[ds]
+            delta_html = (f"<span style='background:{bg};color:{txt};"
+                          f"border-radius:3px;padding:.15rem .45rem;"
+                          f"font-size:.7rem;font-weight:700'>{label}</span>")
         findings_html += f"""
 <div class='finding' style='border-left:4px solid {color}'>
   <div class='fhead'>
     <span class='fid'>{f['check_id']}</span>
     <span class='ftitle'>{f['title']}</span>
     <span class='fsev' style='background:{color}'>{f['severity'].upper()}</span>
+    {delta_html}
   </div>
   <div class='fmeta'><span>📋 {f['cis']}</span><span>🏷️ {f['category']}</span></div>
   <p>{f['description']}</p>
   {'<ul>' + ev_html + '</ul>' if ev_html else ''}
 </div>"""
+
+    delta = report.get("delta")
+    resolved_html = ""
+    if delta and delta.get("resolved"):
+        resolved_html = "<h2 style='color:#3fb950;margin-top:2rem'>✅ Resueltos desde baseline</h2>"
+        for r in delta["resolved"]:
+            rc = _SEV_COLOR.get(r.get("severity", ""), "#555")
+            resolved_html += (
+                f"<div class='finding' style='border-left:4px solid {rc};opacity:.7'>"
+                f"<div class='fhead'>"
+                f"<span class='fid'>{r.get('check_id','')}</span>"
+                f"<span class='ftitle'>{r.get('title','')}</span>"
+                f"<span class='fsev' style='background:{rc}'>{r.get('severity','').upper()}</span>"
+                f"<span style='background:#1a4a1a;color:#3fb950;border-radius:3px;"
+                f"padding:.15rem .45rem;font-size:.7rem;font-weight:700'>✅ FIXED</span>"
+                f"</div></div>"
+            )
 
     if not report["findings"]:
         findings_html = "<div class='ok'>✅ No se detectaron fallos de configuración</div>"
@@ -608,6 +681,7 @@ code{{background:#0d1117;padding:.1rem .3rem;border-radius:3px;font-size:.85rem;
   <span style='color:#8b949e;font-size:.85rem'>{s['total']} hallazgos / 15 checks</span>
 </div>
 {findings_html}
+{resolved_html}
 </body>
 </html>"""
 
@@ -634,6 +708,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--severity", nargs="+",
                         choices=["critical", "high", "medium", "low"],
                         help="Filter findings by severity")
+    parser.add_argument("--baseline", metavar="FILE",
+                        help="Previous JSON report for delta comparison "
+                             "(marks findings as NEW/RECURRING, lists RESOLVED)")
     parser.add_argument("--quiet", action="store_true",
                         help="Suppress output (exit code only)")
     parser.add_argument("--version", action="version",
@@ -666,7 +743,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.severity:
         findings = [f for f in findings if f.severity in args.severity]
 
-    report = build_report(info, findings, args.case, args.analyst)
+    resolved: Optional[List[dict]] = None
+    if args.baseline:
+        try:
+            findings, resolved = apply_delta(findings, args.baseline)
+        except ValueError as exc:
+            print(f"[ERROR] {exc}", file=sys.stderr)
+            return 3
+
+    report = build_report(info, findings, args.case, args.analyst, resolved)
 
     if args.json:
         with open(args.json, "w") as fp:
@@ -678,16 +763,23 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if not args.quiet:
         _ICON = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🟢"}
+        _DELTA = {"new": " [NEW]", "recurring": " [REC]"}
         print(f"\n{TOOL} v{VERSION} — {report['target']}")
         print("─" * 60)
         if findings:
             for f in findings:
                 icon = _ICON.get(f.severity, "⚪")
-                print(f"{icon} [{f.check_id}] {f.title} ({f.severity.upper()})")
+                delta_tag = _DELTA.get(f.delta_state or "", "")
+                print(f"{icon}{delta_tag} [{f.check_id}] {f.title} ({f.severity.upper()})")
                 if f.evidence:
                     print(f"   └─ {f.evidence[0]}")
         else:
             print("✅ No se detectaron fallos de configuración")
+        if resolved:
+            print("\n✅ RESOLVED since baseline:")
+            for r in resolved:
+                print(f"   [{r.get('check_id','')}] {r.get('title','')} "
+                      f"({r.get('severity','').upper()})")
         s = report["summary"]
         print("─" * 60)
         print(f"CRITICAL: {s['critical']}  HIGH: {s['high']}  "
