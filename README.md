@@ -101,7 +101,7 @@ PS C:\> powershell -ExecutionPolicy Bypass -File collect.ps1 > audit.json
 $ vamp-windows-audit --from-json audit.json --case AUDIT-2026-019
 
 ╭──────────────────────────────────────────────────────────────────╮
-│  vamp-windows-audit v1.0 — Windows Security Auditor              │
+│  vamp-windows-audit v1.1.0 — Windows Security Auditor              │
 │  VampSecure Labs · Target: WORKSTATION-07 (Windows 11 Pro 23H2)  │
 │  Case: AUDIT-2026-019                                            │
 ╰──────────────────────────────────────────────────────────────────╯
@@ -301,7 +301,7 @@ PS C:\> powershell -ExecutionPolicy Bypass -File collect.ps1 > audit.json
 $ vamp-windows-audit --from-json audit.json --case AUDIT-2026-019
 
 ╭──────────────────────────────────────────────────────────────────╮
-│  vamp-windows-audit v1.0 — Windows Security Auditor              │
+│  vamp-windows-audit v1.1.0 — Windows Security Auditor              │
 │  VampSecure Labs · Target: WORKSTATION-07 (Windows 11 Pro 23H2)  │
 │  Case: AUDIT-2026-019                                            │
 ╰──────────────────────────────────────────────────────────────────╯
