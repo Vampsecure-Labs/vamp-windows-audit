@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
-VERSION = "1.1.0"
+VERSION = "1.1.2"
 TOOL = "vamp-windows-audit"
 
 # ─── PowerShell collection script ─────────────────────────────────────────────
